@@ -131,7 +131,7 @@ performance.barchart.helper <- function(out,
 
 ###############################################################################
 # helper function to create barplot with labels
-#' @export 
+#' @export barplot.with.labels
 ###############################################################################
 barplot.with.labels <- function(data, main, plotX = TRUE, label=c('level','name','both')) {
 	par(mar=c( iif(plotX, 6, 2), 4, 2, 2))
@@ -510,7 +510,7 @@ create.ia <- function(hist.returns, index=1:ncol(hist.returns), nperiod=nrow(his
 	return(ia)
 }
 
-#' @export
+#' @export update.ia
 update.ia <- function(ia, name, cov.shrink)
 {
 	if(name != 'sample') {
@@ -754,7 +754,7 @@ risk.parity.portfolio <- function(
 
 			
 	
-	#' @export 	
+	#' @export min.var.portfolio
 	min.var.portfolio <- function
 	(
 		ia,				# input assumptions
@@ -807,7 +807,7 @@ risk.parity.portfolio <- function(
 	# ============================================================
 	# Toward Maximum Diversification by Y. Choueifaty, Y. Coignard
 	# The Journal of Portfolio Management, Fall 2008, Vol. 35, No. 1: pp. 40-51
-	#' @export 	
+	#' @export max.div.portfolio
 	max.div.portfolio <- function
 	(
 		ia,				# input assumptions
@@ -901,6 +901,82 @@ ef.portfolio <- function(percent = 0.5)
 }	
 
 
+
+
+# The inverse-variance portfolio
+#' @export 
+inverse.variance.portfolio = function(ia, constraints) {
+	risk.index = get.risky.asset.index(ia)
+
+	x = 1 / diag(ia$cov[risk.index, risk.index])
+	w = x / sum(x)
+	
+	set.risky.asset(w, risk.index)	
+}
+
+# Hierarchical Risk Parity  by Dr. Marcos López de Prado
+# https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2708678
+# https://quantdare.com/hierarchical-risk-parity/
+# http://gallery.rcpp.org/articles/hierarchical-risk-parity/
+# https://quantstrattrader.wordpress.com/2017/05/22/the-marcos-lopez-de-prado-hierarchical-risk-parity-algorithm/
+
+# Compute variance per cluster
+get.cluster.var = function(mcov, index) {
+	get.ivp = function(mcov) {  
+	  ivp = 1 / diag(mcov)
+	  ivp / sum(ivp)
+	}
+
+	mcov.slice = mcov[index, index, drop=F]
+	w = get.ivp(mcov.slice)
+	cVar  = t(w) %*% as.matrix(mcov.slice) %*% w
+	cVar[1]
+}
+
+# Compute HRP alloc
+get.rec.bipart = function(mcov, index) {
+    w = rep(1, ncol(mcov))
+    index = list(index) # initialize all items in one cluster
+    while(length(index) > 0) {
+        new.index = list()
+        for(i in index) {
+            mid.index = 1:floor(length(i)/2)
+            index0 = i[mid.index]
+            index1 = i[-mid.index]
+            cVar0 = get.cluster.var(mcov, index0)
+            cVar1 = get.cluster.var(mcov, index1)
+            alpha = 1 - cVar0/(cVar0 + cVar1)
+            w[index0] = w[index0] * alpha
+            w[index1] = w[index1] * (1-alpha)
+            if(length(index0) > 1) new.index = c(new.index, list(index0))
+            if(length(index1) > 1) new.index = c(new.index, list(index1))
+			index = new.index
+        }
+    }
+    w
+}
+
+# Hierarchical Risk Parity  by Dr. Marcos López de Prado
+# https://papers.ssrn.com/sol3/papers.cfm?abstract_id=27
+#' @export 
+hierarchical.risk.parity = function(ia, constraints) {
+	risk.index = get.risky.asset.index(ia)
+
+	clust.order = hclust(dist(ia$correlation[risk.index, risk.index]), method = 'single')$order
+	
+	# Optionally use short-term risk (20 day) and oroignal correlation
+	#risk = apply(mlast(ia$hist.returns,20) , 2, sd, na.rm = T)
+	#mcov = ia$correlation * (risk %*% t(risk))	
+	
+	mcov = ia$cov
+	
+	w = get.rec.bipart(mcov[risk.index, risk.index], clust.order)
+	
+	set.risky.asset(w, risk.index)	
+}	
+
+
+
 #*****************************************************************	
 # Tracking Error minimization:
 # http://www.mathworks.com/matlabcentral/answers/59587-how-to-use-the-objective-function-minimize-te-in-quadprog
@@ -923,7 +999,7 @@ ef.portfolio <- function(percent = 0.5)
 # http://www.tbm.tudelft.nl/fileadmin/Faculteit/TBM/Over_de_Faculteit/Afdelingen/Afdeling_Infrastructure_Systems_and_Services/Sectie_Informatie_en_Communicatie_Technologie/medewerkers/jan_van_den_berg/courses/Security_en_Techniek/doc/ACFM-met-Roland.pdf
 #*****************************************************************
 # solve.QP: min(x'Dx - 2*dvec*x) 
-#' @export 
+#' @export min.te.portfolio.test
 min.te.portfolio.test <- function() 
 {
 	# minimum Tracking Error portfolios
@@ -1128,7 +1204,7 @@ random.hist.weight = function(
 ###############################################################################	
 	# only works for constraints that are homogeneous of degree 0
 	# i.e. if we multiply solution weight by a number, the constraint is unchanged
-	#' @export 
+	#' @export max.sharpe.portfolio.helper
 	max.sharpe.portfolio.helper <- function
 	(
 		ia,				# input assumptions
@@ -1161,7 +1237,7 @@ random.hist.weight = function(
 			return(const.sum * weight / sum(weight))
 	}	
 	
-	#' @export 	
+	#' @export max.sharpe.portfolio
 	max.sharpe.portfolio <- function
 	(
 		const = spl('long-only,long-short,market-neutral'),
@@ -1196,7 +1272,7 @@ random.hist.weight = function(
 # Source: [Risk-adjusted returns ratio that does not reward high risk for negative returns](https://quant.stackexchange.com/questions/32434/risk-adjusted-returns-ratio-that-does-not-reward-high-risk-for-negative-returns)
 #
 ###############################################################################		
-	#' @export 	
+	#' @export max.sharpe.portfolio.axioma
 	max.sharpe.portfolio.axioma <- function
 	(
 		ia,				# input assumptions
@@ -1526,7 +1602,7 @@ max.div.portfolio.test <- function()
 #*****************************************************************
 # Max Sharpe portfolio using non-linear solver, based on
 # http://stackoverflow.com/questions/10526243/quadprog-optimization
-#' @export 
+#' @export max.sharpe.nlp.portfolio
 #*****************************************************************
 	max.sharpe.nlp.portfolio <- function
 	(
@@ -1598,7 +1674,7 @@ cat(round(100*c(portfolio.return(weight,ia), portfolio.risk(weight,ia), portfoli
 	
 	# MinCorr by David Varadi	
 	# http://cssanalytics.files.wordpress.com/2012/10/minimum-correlation-mincorr-spreadsheet.xlsx
-	#' @export 
+	#' @export min.corr.excel
 min.corr.excel <- function(power.function = 1, final.scale = 'risk')
 {
 	power.function = as.numeric(power.function)
@@ -1673,7 +1749,7 @@ min.corr.excel.portfolio.test <- function()
 }
 
 	
-#' @export 
+#' @export min.corr.special.case
 min.corr.special.case <- function(risk) {
 	n = len(risk)
 	if(n == 1) 1
@@ -1682,7 +1758,7 @@ min.corr.special.case <- function(risk) {
 }
 
 # MinCorr by David Varadi
-#' @export 
+#' @export min.corr
 min.corr <- function(power.function = 1)
 {
 	power.function = as.numeric(power.function)
@@ -1735,7 +1811,7 @@ min.corr <- function(power.function = 1)
 
 
 # MinCorr2 by David Varadi
-#' @export 
+#' @export min.corr2
 min.corr2 <- function(power.function = 1)
 {
 	power.function = as.numeric(power.function)
@@ -1784,7 +1860,7 @@ min.corr2 <- function(power.function = 1)
 # MinVar2 by David Varadi
 # i.e. take MinCorr2 and use Covariance instead of Correlation
 # The performance is similar to Minimum Variance with smaller turnover and larger drawdown
-#' @export 
+#' @export min.var2111
 min.var2111 <- function(power.function = 1)
 {
     power.function = as.numeric(power.function)
@@ -1823,7 +1899,7 @@ min.var2111 <- function(power.function = 1)
     }        
 }
 
-#' @export 
+#' @export min.var.excel
 min.var.excel <- function(power.function = 1)
 {
     power.function = as.numeric(power.function)
@@ -1897,12 +1973,12 @@ data = '
 
 
 	# Portfolio Allocation adaptors for above functions
-	#' @export 
+	#' @export min.var2.portfolio
 	min.var2.portfolio <- function(ia,constraints) { min.corr.excel(final.scale = 'vol')(ia,constraints) } 
 	
 	
 
-#' @export 
+#' @export min.var2
 min.var2 <- function(power.function = 1)
 {
     power.function = as.numeric(power.function)    
@@ -1911,19 +1987,19 @@ min.var2 <- function(power.function = 1)
 	
 	
 
-	#' @export 
+	#' @export min.var.excel.portfolio
 	min.var.excel.portfolio <- function(ia,constraints) { min.var.excel()(ia,constraints) } 	
 		
-	#' @export 	
+	#' @export min.corr.excel.portfolio
 	min.corr.excel.portfolio <- function(ia,constraints) { min.corr.excel()(ia,constraints) }
 	
-	#' @export 	
+	#' @export min.corr.portfolio
 	min.corr.portfolio <- function(ia,constraints) { min.corr()(ia,constraints) }
 	
-	#' @export 	
+	#' @export min.corr2.portfolio
 	min.corr2.portfolio <- function(ia,constraints) { min.corr2()(ia,constraints) }
 	
-	#' @export 	
+	#' @export min.cvar
 	min.cvar <- function(alpha = 0.95) { 
 		alpha = alpha
 		function(ia,constraints) {
@@ -1931,7 +2007,7 @@ min.var2 <- function(power.function = 1)
 			min.cvar.portfolio(ia,constraints) 
 		}
 	}
-	#' @export 	
+	#' @export min.cdar
 	min.cdar <- function(alpha = 0.95) {
 		alpha = alpha
 		function(ia,constraints) {
@@ -1940,7 +2016,7 @@ min.var2 <- function(power.function = 1)
 		}
 	}
 
-	#' @export 	
+	#' @export min.risk.downside
 	min.risk.downside <- function(mar = 0) { 
 		mar = mar
 		function(ia,constraints) {
@@ -1948,7 +2024,7 @@ min.var2 <- function(power.function = 1)
 			min.risk.downside.portfolio(ia,constraints) 
 		}
 	}
-	#' @export 	
+	#' @export min.mad.downside
 	min.mad.downside <- function(mar = 0) { 
 		mar = mar
 		function(ia,constraints) {
@@ -1976,7 +2052,7 @@ min.var2 <- function(power.function = 1)
 		0.5 * sample.anchored.shrinkage(hist, hist.all)
 	}
 	
-	#' @export 	
+	#' @export exp.sample.shrinkage
 	exp.sample.shrinkage <- function( hist, hist.all ) {
 		hist = na.omit(hist)
 		# Exponentially weighted
@@ -2002,13 +2078,13 @@ min.var2 <- function(power.function = 1)
 		create.cov.matrix(avg.correlation, hist)
 	}
 
-	#' @export 	
+	#' @export min.shrinkage
 	min.shrinkage <- function( hist, hist.all ) {
 		correlation = cor(hist, use='complete.obs', method='pearson')
 		create.cov.matrix(min(correlation), hist)
 	}
 	
-	#' @export 	
+	#' @export max.shrinkage
 	max.shrinkage <- function( hist, hist.all ) {
 		n = ncol(hist)
 		correlation = cor(hist, use='complete.obs', method='pearson')
@@ -3316,7 +3392,7 @@ target.vol.strategy <- function(model, weight,
 	
 	#*****************************************************************
 	# Look at trades
-	#' @export 
+	#' @export last.trades
 	#*****************************************************************
 	last.trades <- function(..., n=20, make.plot=T, return.table=F, smain = NULL) {
 		models = variable.number.arguments( ... )
@@ -3337,7 +3413,7 @@ target.vol.strategy <- function(model, weight,
 
 	#*****************************************************************
 	# Look at signals
-	#' @export 
+	#' @export last.signals
 	#*****************************************************************	
 	last.signals <- function(..., n=20, make.plot=T, return.table=F, smain = NULL) {
 		models = variable.number.arguments( ... )
